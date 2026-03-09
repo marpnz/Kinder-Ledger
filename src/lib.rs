@@ -1,163 +1,95 @@
 use anchor_lang::prelude::*;
 
-declare_id!("hpGG7v5Y5XFtT96thymVC9sAxUNUGPHygjuzgoTcFp3");
+// NOTA: Al hacer 'Build' en Playground, se generará un ID automáticamente. 
+// Copia ese ID y reemplázalo aquí si es necesario.
+declare_id!("6k7...tu_program_id_aqui..."); 
 
 #[program]
-pub mod lumen {
+pub mod kindred_ledger {
     use super::*;
 
-    /// Crea un nuevo producto en la tienda virtual.
-    /// Cada producto se almacena en una PDA única basada en:
-    ///   - "item_v1"
-    ///   - owner_pubkey
-    ///   - título del producto
-    pub fn add_item(ctx: Context<AddItem>, title: String, price: u64) -> Result<()> {
-        // Validaciones de entrada
-        require!(title.len() > 0 && title.len() <= 32, LumenError::InvalidTitleLength);
-        require!(price > 0, LumenError::InvalidPrice);
-
-        let item = &mut ctx.accounts.store_item;
-
-        item.owner = *ctx.accounts.owner.key;
-        item.title = title;
-        item.price = price;
-        item.is_available = true;
-        item.bump = ctx.bumps.store_item;
-
-        msg!("LUMEN: Producto '{}' registrado exitosamente.", item.title);
-        Ok(())
-    }
-
-    /// Actualiza el precio y la disponibilidad de un producto.
-    /// El sistema valida automáticamente que el `owner` sea el dueño real.
-    pub fn update_item(
-        ctx: Context<UpdateItem>,
-        price: u64,
-        is_available: bool,
+    /// Registra a un niño de forma permanente en la blockchain.
+    pub fn register_child(
+        ctx: Context<RegisterChild>, 
+        id_expediente: String, 
+        name: String, 
+        age: u8,
+        medical_notes: String
     ) -> Result<()> {
-        require!(price > 0, LumenError::InvalidPrice);
+        let child_record = &mut ctx.accounts.child_record;
+        let clock = Clock::get()?; // Captura el tiempo real de la red Solana
 
-        let item = &mut ctx.accounts.store_item;
+        child_record.admin = *ctx.accounts.admin.key;
+        child_record.id_expediente = id_expediente;
+        child_record.name = name;
+        child_record.age = age;
+        child_record.medical_notes = medical_notes;
+        child_record.admission_date = clock.unix_timestamp;
+        child_record.is_active = true;
 
-        item.price = price;
-        item.is_available = is_available;
-
-        msg!("LUMEN: Producto '{}' actualizado correctamente.", item.title);
+        msg!("Expediente creado permanentemente: {}", child_record.id_expediente);
         Ok(())
     }
 
-    /// Elimina un producto y devuelve la renta (SOL) al propietario.
-    pub fn delete_item(ctx: Context<DeleteItem>) -> Result<()> {
-        let item = &ctx.accounts.store_item;
+    /// Actualiza información sin borrar el registro original.
+    /// Ideal para cuando un niño egresa o cambia su situación médica.
+    pub fn update_child_status(
+        ctx: Context<UpdateChild>, 
+        new_notes: String, 
+        is_active: bool
+    ) -> Result<()> {
+        let child_record = &mut ctx.accounts.child_record;
+        
+        child_record.medical_notes = new_notes;
+        child_record.is_active = is_active;
 
-        msg!(
-            "LUMEN: Producto '{}' eliminado. Renta devuelta al propietario {}.",
-            item.title,
-            item.owner
-        );
-
+        msg!("Registro actualizado para el expediente: {}", child_record.id_expediente);
         Ok(())
     }
 }
-
-/* -------------------------------------------------------------------------- */
-/*                               MODELO DE DATOS                              */
-/* -------------------------------------------------------------------------- */
 
 #[account]
-pub struct StoreItem {
-    pub owner: Pubkey,      // Dueño del producto
-    pub title: String,      // Nombre del producto
-    pub price: u64,         // Precio en lamports
-    pub is_available: bool, // Disponibilidad
-    pub bump: u8,           // Bump de la PDA
+pub struct ChildRecord {
+    pub admin: Pubkey,          // 32 bytes
+    pub id_expediente: String,  // 4 + 16 bytes (ej. "CASA-001")
+    pub name: String,           // 4 + 32 bytes
+    pub medical_notes: String,  // 4 + 128 bytes
+    pub age: u8,                // 1 byte
+    pub admission_date: i64,    // 8 bytes (timestamp)
+    pub is_active: bool,        // 1 byte
 }
-
-impl StoreItem {
-    // Cálculo del espacio necesario para la cuenta
-    // 8  -> Discriminador
-    // 32 -> Pubkey
-    // 4 + 32 -> String (máx 32 chars)
-    // 8  -> u64
-    // 1  -> bool
-    // 1  -> u8
-    pub const LEN: usize = 8 + 32 + 36 + 8 + 1 + 1;
-}
-
-/* -------------------------------------------------------------------------- */
-/*                               CONTEXTOS (PDAs)                             */
-/* -------------------------------------------------------------------------- */
 
 #[derive(Accounts)]
-#[instruction(title: String)]
-pub struct AddItem<'info> {
+#[instruction(id_expediente: String)]
+pub struct RegisterChild<'info> {
     #[account(
-        init,
-        payer = owner,
-        space = StoreItem::LEN,
-        seeds = [
-            b"item_v1",
-            owner.key().as_ref(),
-            title.as_bytes()
-        ],
+        init, 
+        payer = admin, 
+        // Cálculo de espacio: Discriminante (8) + Campos definidos arriba
+        space = 8 + 32 + 20 + 36 + 132 + 1 + 8 + 1,
+        // La PDA se genera usando la palabra "child" y el ID del expediente
+        seeds = [b"child", id_expediente.as_bytes()],
         bump
     )]
-    pub store_item: Account<'info, StoreItem>,
-
+    pub child_record: Account<'info, ChildRecord>,
     #[account(mut)]
-    pub owner: Signer<'info>,
-
+    pub admin: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-pub struct UpdateItem<'info> {
+pub struct UpdateChild<'info> {
     #[account(
-        mut,
-        has_one = owner @ LumenError::Unauthorized,
-        seeds = [
-            b"item_v1",
-            owner.key().as_ref(),
-            store_item.title.as_bytes()
-        ],
-        bump = store_item.bump
+        mut, 
+        // Solo el administrador que creó el registro puede editarlo
+        has_one = admin @ ErrorCode::Unauthorized
     )]
-    pub store_item: Account<'info, StoreItem>,
-
-    pub owner: Signer<'info>,
+    pub child_record: Account<'info, ChildRecord>,
+    pub admin: Signer<'info>,
 }
-
-#[derive(Accounts)]
-pub struct DeleteItem<'info> {
-    #[account(
-        mut,
-        close = owner,
-        has_one = owner @ LumenError::Unauthorized,
-        seeds = [
-            b"item_v1",
-            owner.key().as_ref(),
-            store_item.title.as_bytes()
-        ],
-        bump = store_item.bump
-    )]
-    pub store_item: Account<'info, StoreItem>,
-
-    #[account(mut)]
-    pub owner: Signer<'info>,
-}
-
-/* -------------------------------------------------------------------------- */
-/*                                   ERRORES                                  */
-/* -------------------------------------------------------------------------- */
 
 #[error_code]
-pub enum LumenError {
-    #[msg("No tienes permisos para modificar este producto.")]
+pub enum ErrorCode {
+    #[msg("No tienes permiso para modificar este expediente.")]
     Unauthorized,
-
-    #[msg("El título debe tener entre 1 y 32 caracteres.")]
-    InvalidTitleLength,
-
-    #[msg("El precio debe ser mayor a 0.")]
-    InvalidPrice,
 }
