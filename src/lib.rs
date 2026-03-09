@@ -1,49 +1,59 @@
 use anchor_lang::prelude::*;
 
-// NOTA: Al hacer 'Build' en Playground, se generará un ID automáticamente. 
-// Copia ese ID y reemplázalo aquí si es necesario.
 declare_id!("6k7...tu_program_id_aqui..."); 
 
 #[program]
 pub mod kindred_ledger {
     use super::*;
 
-    /// Registra a un niño de forma permanente en la blockchain.
+    /// 1. Registro inicial del niño
     pub fn register_child(
         ctx: Context<RegisterChild>, 
         id_expediente: String, 
         name: String, 
         age: u8,
-        medical_notes: String
+        blood_type: String,
+        initial_notes: String
     ) -> Result<()> {
         let child_record = &mut ctx.accounts.child_record;
-        let clock = Clock::get()?; // Captura el tiempo real de la red Solana
+        let clock = Clock::get()?; 
 
         child_record.admin = *ctx.accounts.admin.key;
         child_record.id_expediente = id_expediente;
         child_record.name = name;
         child_record.age = age;
-        child_record.medical_notes = medical_notes;
+        child_record.blood_type = blood_type;
+        child_record.medical_notes = initial_notes;
         child_record.admission_date = clock.unix_timestamp;
         child_record.is_active = true;
+        child_record.exit_date = 0; // 0 significa que sigue en la casa
 
-        msg!("Expediente creado permanentemente: {}", child_record.id_expediente);
+        msg!("Expediente permanente creado: {}", child_record.name);
         Ok(())
     }
 
-    /// Actualiza información sin borrar el registro original.
-    /// Ideal para cuando un niño egresa o cambia su situación médica.
-    pub fn update_child_status(
-        ctx: Context<UpdateChild>, 
-        new_notes: String, 
-        is_active: bool
-    ) -> Result<()> {
+    /// 2. Actualizar edad y salud (Crecimiento del niño)
+    pub fn update_vitals(ctx: Context<UpdateChild>, new_age: u8, new_notes: String) -> Result<()> {
         let child_record = &mut ctx.accounts.child_record;
         
+        child_record.age = new_age;
         child_record.medical_notes = new_notes;
-        child_record.is_active = is_active;
 
-        msg!("Registro actualizado para el expediente: {}", child_record.id_expediente);
+        msg!("Vitales actualizados para: {}", child_record.id_expediente);
+        Ok(())
+    }
+
+    /// 3. Registrar Salida (Egreso) - El registro queda inactivo pero LA DATA SIGUE AHÍ
+    pub fn register_exit(ctx: Context<UpdateChild>, exit_reason: String) -> Result<()> {
+        let child_record = &mut ctx.accounts.child_record;
+        let clock = Clock::get()?;
+
+        child_record.is_active = false;
+        child_record.exit_date = clock.unix_timestamp;
+        // Concatenamos la razón de salida a las notas médicas para que quede el registro
+        child_record.medical_notes = format!("{} | MOTIVO SALIDA: {}", child_record.medical_notes, exit_reason);
+
+        msg!("Egreso registrado. El expediente ahora es histórico.");
         Ok(())
     }
 }
@@ -51,11 +61,13 @@ pub mod kindred_ledger {
 #[account]
 pub struct ChildRecord {
     pub admin: Pubkey,          // 32 bytes
-    pub id_expediente: String,  // 4 + 16 bytes (ej. "CASA-001")
-    pub name: String,           // 4 + 32 bytes
-    pub medical_notes: String,  // 4 + 128 bytes
+    pub id_expediente: String,  // 4 + 20 bytes
+    pub name: String,           // 4 + 40 bytes
+    pub blood_type: String,     // 4 + 4 bytes (ej. "O+", "AB-")
+    pub medical_notes: String,  // 4 + 200 bytes (más espacio para historial)
     pub age: u8,                // 1 byte
-    pub admission_date: i64,    // 8 bytes (timestamp)
+    pub admission_date: i64,    // 8 bytes
+    pub exit_date: i64,         // 8 bytes
     pub is_active: bool,        // 1 byte
 }
 
@@ -65,9 +77,8 @@ pub struct RegisterChild<'info> {
     #[account(
         init, 
         payer = admin, 
-        // Cálculo de espacio: Discriminante (8) + Campos definidos arriba
-        space = 8 + 32 + 20 + 36 + 132 + 1 + 8 + 1,
-        // La PDA se genera usando la palabra "child" y el ID del expediente
+        // Aumentamos el espacio para notas más largas y nuevos campos
+        space = 8 + 32 + 24 + 44 + 8 + 204 + 1 + 8 + 8 + 1,
         seeds = [b"child", id_expediente.as_bytes()],
         bump
     )]
@@ -81,8 +92,8 @@ pub struct RegisterChild<'info> {
 pub struct UpdateChild<'info> {
     #[account(
         mut, 
-        // Solo el administrador que creó el registro puede editarlo
-        has_one = admin @ ErrorCode::Unauthorized
+        has_one = admin @ ErrorCode::UnauthorizedAccess,
+        constraint = child_record.is_active == true @ ErrorCode::RecordAlreadyInactive
     )]
     pub child_record: Account<'info, ChildRecord>,
     pub admin: Signer<'info>,
@@ -90,6 +101,8 @@ pub struct UpdateChild<'info> {
 
 #[error_code]
 pub enum ErrorCode {
-    #[msg("No tienes permiso para modificar este expediente.")]
-    Unauthorized,
+    #[msg("No tienes permisos de administrador sobre este expediente.")]
+    UnauthorizedAccess,
+    #[msg("Este expediente ya está cerrado (el niño ya egresó).")]
+    RecordAlreadyInactive,
 }
