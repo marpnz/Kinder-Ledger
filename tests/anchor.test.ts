@@ -1,56 +1,34 @@
-describe("LUMEN - Pruebas Finales", () => {
-  const juegoTitulo = "Elden_Ring";
-  const precioInicial = new anchor.BN(1000000); 
+// No imports needed: web3, anchor, pg and more are globally available
 
-  const [itemPda] = anchor.web3.PublicKey.findProgramAddressSync(
-    [
-      Buffer.from("item_v1"),
-      pg.wallet.publicKey.toBuffer(),
-      Buffer.from(juegoTitulo),
-    ],
-    pg.program.programId
-  );
+describe("Test", () => {
+  it("initialize", async () => {
+    // Generate keypair for the new account
+    const newAccountKp = new web3.Keypair();
 
-  it("Paso 1: Añadir Item", async () => {
-    await (pg.program.methods as any)
-      .addItem(juegoTitulo, precioInicial)
+    // Send transaction
+    const data = new BN(42);
+    const txHash = await pg.program.methods
+      .initialize(data)
       .accounts({
-        storeItem: itemPda,
-        owner: pg.wallet.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        newAccount: newAccountKp.publicKey,
+        signer: pg.wallet.publicKey,
+        systemProgram: web3.SystemProgram.programId,
       })
+      .signers([newAccountKp])
       .rpc();
+    console.log(`Use 'solana confirm -v ${txHash}' to see the logs`);
 
-    const cuenta = await (pg.program.account as any).storeItem.fetch(itemPda);
-    console.log("✔ Juego creado:", cuenta.title);
-  });
+    // Confirm transaction
+    await pg.connection.confirmTransaction(txHash);
 
-  it("Paso 2: Actualizar", async () => {
-    await (pg.program.methods as any)
-      .updateItem(new anchor.BN(500000), false)
-      .accounts({
-        storeItem: itemPda,
-        owner: pg.wallet.publicKey,
-      })
-      .rpc();
+    // Fetch the created account
+    const newAccount = await pg.program.account.newAccount.fetch(
+      newAccountKp.publicKey
+    );
 
-    const cuenta = await (pg.program.account as any).storeItem.fetch(itemPda);
-    console.log("✔ Precio actualizado a:", cuenta.price.toString());
-  });
+    console.log("On-chain data is:", newAccount.data.toString());
 
-  it("Paso 3: Borrar", async () => {
-    await (pg.program.methods as any)
-      .deleteItem()
-      .accounts({
-        storeItem: itemPda,
-        owner: pg.wallet.publicKey,
-      })
-      .rpc();
-
-    try {
-      await (pg.program.account as any).storeItem.fetch(itemPda);
-    } catch (e) {
-      console.log("✔ Cuenta cerrada y renta recuperada.");
-    }
+    // Check whether the data on-chain is equal to local 'data'
+    assert(data.eq(newAccount.data));
   });
 });
