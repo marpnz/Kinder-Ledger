@@ -1,12 +1,12 @@
 use anchor_lang::prelude::*;
 
-declare_id!("6k7...tu_program_id_aqui..."); 
+declare_id!("Hawe1hYHqDXc6dLVsZLtmNPQfhEwAfivhaQLgwB8JEsc"); 
 
 #[program]
 pub mod kindred_ledger {
     use super::*;
 
-    /// 1. Registro inicial del niño
+    /// Registro inicial del niño
     pub fn register_child(
         ctx: Context<RegisterChild>, 
         id_expediente: String, 
@@ -32,7 +32,7 @@ pub mod kindred_ledger {
         Ok(())
     }
 
-    /// 2. Actualizar edad y salud (Crecimiento del niño)
+    ///Actualizar edad y salud (Crecimiento del niño)
     pub fn update_vitals(ctx: Context<UpdateChild>, new_age: u8, new_notes: String) -> Result<()> {
         let child_record = &mut ctx.accounts.child_record;
         
@@ -43,14 +43,14 @@ pub mod kindred_ledger {
         Ok(())
     }
 
-    /// 3. Registrar Salida (Egreso) - El registro queda inactivo pero LA DATA SIGUE AHÍ
+    ///Registrar Salida (Egreso) - El registro queda inactivo pero LA DATA SIGUE AHÍ
     pub fn register_exit(ctx: Context<UpdateChild>, exit_reason: String) -> Result<()> {
         let child_record = &mut ctx.accounts.child_record;
         let clock = Clock::get()?;
 
         child_record.is_active = false;
         child_record.exit_date = clock.unix_timestamp;
-        // Concatenamos la razón de salida a las notas médicas para que quede el registro
+        //Concatenamos la razón de salida a las notas médicas para que quede el registro
         child_record.medical_notes = format!("{} | MOTIVO SALIDA: {}", child_record.medical_notes, exit_reason);
 
         msg!("Egreso registrado. El expediente ahora es histórico.");
@@ -77,7 +77,7 @@ pub struct RegisterChild<'info> {
     #[account(
         init, 
         payer = admin, 
-        // Aumentamos el espacio para notas más largas y nuevos campos
+        //Aumentamos el espacio para notas más largas y nuevos campos
         space = 8 + 32 + 24 + 44 + 8 + 204 + 1 + 8 + 8 + 1,
         seeds = [b"child", id_expediente.as_bytes()],
         bump
